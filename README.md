@@ -130,3 +130,4 @@ docker compose up -d zookeeper kafka
 ## Security
 
 See `SECURITY.md` for details on tenant isolation, credential rotation, breach impact, and enterprise hardening recommendations.
+Commit marker 1 - 2026-05-29T16:04:38.4975862+05:30
