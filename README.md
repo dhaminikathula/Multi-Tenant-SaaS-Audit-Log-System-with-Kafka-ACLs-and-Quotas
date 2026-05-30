@@ -1,85 +1,70 @@
-# Multi-Tenant SaaS Audit Log System with Kafka ACLs and Quotas
+﻿# Multi-Tenant SaaS Audit Log System with Kafka ACLs and Quotas
 
-A complete proof-of-concept stack for a secure multi-tenant audit logging platform using Apache Kafka, SASL/SCRAM authentication, ACL-based isolation, client quotas, and MinIO archival.
+> Secure multi-tenant audit logging with Kafka authorization, quotas, and MinIO archival.
 
 ## Overview
 
-This repository demonstrates how to enforce tenant separation at the Kafka broker layer by:
+This repository delivers a polished proof-of-concept for a multi-tenant audit log platform built on Apache Kafka.
+It demonstrates tenant isolation and security using:
 
-- assigning each tenant a unique SASL/SCRAM credential
-- restricting topic access with Kafka ACLs
-- enforcing per-tenant producer/consumer quotas
-- writing tenant audit events through a gateway service
-- archiving older audit messages to MinIO
+- SASL/SCRAM authentication for tenant clients
+- Kafka ACL-based read/write/describe controls per topic
+- Client quotas to enforce fair usage and prevent noisy-neighbor behavior
+- A REST gateway for tenant audit ingestion
+- Background archival of aged audit records to MinIO object storage
+
+## Key Features
+
+- Tenant-specific audit topics: `audit.<tenant>.events`
+- Strong tenant authentication with `SCRAM-SHA-256` and `SCRAM-SHA-512`
+- Kafka ACL enforcement for topic access control
+- Client quotas to throttle excessive producer traffic
+- MinIO archival pipeline for cold audit storage
+- Validation scripts for ACL and quota enforcement
 
 ## Architecture
 
-- `docker-compose.yml` launches:
-  - `zookeeper` for cluster coordination
-  - `kafka` broker with `SASL_PLAINTEXT` and `PLAINTEXT` listeners
-  - `minio` for object storage
-  - `app` gateway service for event ingestion and archival
-- `app/server.js` exposes a REST `POST /events` endpoint and a background archiver
-- `provision.sh` / `provision.ps1` create tenant topics, SCRAM users, ACLs, and quotas
-- `app/test_acl_violation.js` and `app/test_quota_violation.js` validate enforcement
-- `SECURITY.md` documents threat model and production hardening guidance
+The stack includes:
 
-## Prerequisites
+- `zookeeper` — cluster coordination for Kafka
+- `kafka` — single-broker SASL-enabled Kafka with ACL authorizer
+- `minio` — S3-compatible object storage for archived audit events
+- `app` — Node.js gateway service for event ingestion and archival
 
-- Docker Engine
-- Docker Compose v2+
-- Bash or WSL for Linux/macOS workflows
-- PowerShell for Windows provisioning
+The gateway accepts tenant events over HTTP, writes them to tenant-dedicated Kafka topics, and runs a background archiver that uploads older records to MinIO.
 
-## Setup
+## Quick Start
 
-1. Start the stack:
+### 1. Start the platform
 
 ```bash
 docker compose up -d zookeeper kafka minio app
 ```
 
-2. Wait until the services are healthy.
+### 2. Provision tenants, topics, ACLs, and quotas
 
-3. Provision tenants, ACLs, and quotas.
-
-### Linux/macOS
+Linux/macOS:
 
 ```bash
 ./provision.sh
 ```
 
-### Windows PowerShell
+Windows PowerShell:
 
 ```powershell
 ./provision.ps1
 ```
 
-## Environment configuration
-
-Use `.env.example` as the template for environment variables.
-
-Key variables:
-
-- `KAFKA_BOOTSTRAP_SERVERS`
-- `KAFKA_INTERNAL_SERVER`
-- `MINIO_ENDPOINT`, `MINIO_PORT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`
-- `SYSTEM_USER`, `SYSTEM_PASSWORD`
-- `ADMIN_USER`, `ADMIN_PASSWORD`
-- `ARCHIVE_INTERVAL_MS`
-
-## Verification
-
-### Service health
-
-- Kafka and ZooKeeper should be `Up` via `docker compose ps`
-- App health endpoint:
+### 3. Confirm service health
 
 ```bash
+docker compose ps
 curl http://localhost:8080/health
 ```
 
-### Send a tenant event
+## Tenant Usage
+
+Send an audit event for a tenant:
 
 ```bash
 curl -X POST http://localhost:8080/events \
@@ -88,39 +73,61 @@ curl -X POST http://localhost:8080/events \
   -d '{"actor_id":"user-123","action":"login","timestamp":"2026-05-28T12:00:00Z","details":{"ip":"10.0.0.1"}}'
 ```
 
-### ACL verification
+Successful requests are accepted with `202 Accepted` and routed into the matching `audit.<tenant>.events` topic.
 
-Run the ACL violation test to confirm tenant isolation:
+## Validation
+
+### ACL enforcement
+
+Verify tenant isolation with the ACL test script:
 
 ```bash
 ./test_acl_violation.sh
 ```
 
-A successful test returns a non-zero exit code and prints `TopicAuthorizationException` to stderr.
+Expected behavior:
 
-### Quota verification
+- tenant clients can only write to their own topic
+- cross-tenant writes are rejected with `TopicAuthorizationException`
 
-Run the quota violation script to generate sustained traffic and verify throttling:
+### Quota enforcement
+
+Validate client quota throttling:
 
 ```bash
 ./test_quota_violation.sh
 ```
 
-## Project files
+This script generates sustained producer traffic and confirms broker throttling for tenants that exceed configured quotas.
 
-- `docker-compose.yml` — orchestration for Kafka, ZooKeeper, MinIO, and gateway
-- `provision.sh` — Linux provisioning script
-- `provision.ps1` — Windows provisioning script
-- `app/server.js` — gateway + archival worker
+## Configuration
+
+Use `.env.example` as the basis for environment configuration.
+
+Important values:
+
+- `KAFKA_BOOTSTRAP_SERVERS`
+- `KAFKA_INTERNAL_SERVER`
+- `MINIO_ENDPOINT`, `MINIO_PORT`, `MINIO_ACCESS_KEY`, `MINIO_SECRET_KEY`
+- `SYSTEM_USER`, `SYSTEM_PASSWORD`
+- `ADMIN_USER`, `ADMIN_PASSWORD`
+- `ARCHIVE_INTERVAL_MS`
+
+## Project Files
+
+- `docker-compose.yml` — orchestrates Kafka, ZooKeeper, MinIO, and the gateway
+- `provision.sh` — Linux provisioning script for topics, users, ACLs, and quotas
+- `provision.ps1` — Windows provisioning script for tenants and ACLs
+- `app/server.js` — HTTP gateway and archival worker
 - `app/test_acl_violation.js` — ACL enforcement test
-- `app/test_quota_violation.js` — quota throttling test
-- `.env.example` — environment configuration template
-- `SECURITY.md` — security and hardening guidance
+- `app/test_quota_violation.js` — quota throttling validation
+- `SECURITY.md` — security model and production hardening guidance
 
 ## Notes
 
-- This demo uses `SASL_PLAINTEXT` within Docker Compose. For production, migrate to `SASL_SSL`.
-- If Kafka metadata becomes stale, remove the broker data volume and restart:
+- This demo uses `SASL_PLAINTEXT` in Docker Compose for simplicity.
+- For production deployments, migrate to `SASL_SSL` and secure all credentials.
+- If Kafka broker metadata becomes inconsistent, clear the Kafka volume and restart the broker:
 
 ```bash
 docker compose down -v
@@ -129,34 +136,10 @@ docker compose up -d zookeeper kafka
 
 ## Security
 
-See `SECURITY.md` for details on tenant isolation, credential rotation, breach impact, and enterprise hardening recommendations.
-Commit marker 1 - 2026-05-29T16:04:38.4975862+05:30
-Commit marker 2 - 2026-05-29T16:04:38.7599111+05:30
-Commit marker 3 - 2026-05-29T16:04:38.9196151+05:30
-Commit marker 4 - 2026-05-29T16:04:39.1028193+05:30
-Commit marker 5 - 2026-05-29T16:04:39.3928142+05:30
-Commit marker 6 - 2026-05-29T16:04:39.6443741+05:30
-Commit marker 7 - 2026-05-29T16:04:39.8292684+05:30
-Commit marker 8 - 2026-05-29T16:04:40.0057555+05:30
-Commit marker 9 - 2026-05-29T16:04:40.1916577+05:30
-Commit marker 10 - 2026-05-29T16:04:40.4541917+05:30
-Commit marker 11 - 2026-05-29T16:04:40.7182082+05:30
-Commit marker 12 - 2026-05-29T16:04:40.8875462+05:30
-Commit marker 13 - 2026-05-29T16:04:41.0762982+05:30
-Commit marker 14 - 2026-05-29T16:04:41.2699525+05:30
-Commit marker 15 - 2026-05-29T16:04:41.5838723+05:30
-Commit marker 16 - 2026-05-29T16:04:41.8189428+05:30
-Commit marker 17 - 2026-05-29T16:04:42.0253199+05:30
-Commit marker 18 - 2026-05-29T16:04:42.3083201+05:30
-Commit marker 19 - 2026-05-29T16:04:42.6154768+05:30
-Commit marker 20 - 2026-05-29T16:04:42.8953950+05:30
-Commit marker 21 - 2026-05-29T16:04:43.1069890+05:30
-Commit marker 22 - 2026-05-29T16:04:43.3176929+05:30
-Commit marker 23 - 2026-05-29T16:04:43.5079868+05:30
-Commit marker 24 - 2026-05-29T16:04:43.7778311+05:30
-Commit marker 25 - 2026-05-29T16:04:44.0392925+05:30
-Commit marker 26 - 2026-05-29T16:04:44.2377508+05:30
-Commit marker 27 - 2026-05-29T16:04:44.4301374+05:30
-Commit marker 28 - 2026-05-29T16:04:44.6208440+05:30
-Commit marker 29 - 2026-05-29T16:04:44.8995566+05:30
-Commit marker 30 - 2026-05-29T16:04:45.1533067+05:30
+This repository is designed to illustrate multi-tenant access control and auditing.
+Refer to `SECURITY.md` for:
+
+- authentication and authorization strategy
+- tenant isolation risks
+- credential rotation guidance
+- production hardening recommendations
