@@ -1,0 +1,14 @@
+{
+  "name": "audit-log-gateway-archiver",
+  "version": "1.0.0",
+  "description": "Multi-Tenant SaaS Audit Log System Gateway and Archiver",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "kafkajs": "^2.2.4",
+    "minio": "^7.1.1"
+  }
+}
